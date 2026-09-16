@@ -16,6 +16,7 @@ macOS 터미널 개발 환경을 한 번에 구성하는 스크립트(`mac-dev-s
 - [스크립트 설명](docs/script-guide.md) — `mac-dev-setup.sh`가 무엇을 어떤 순서로 하는지
 - [설치 도구 레퍼런스](docs/cli-tools-reference.md) — 설치되는 CLI 도구별 설명과 사용 예제
 - [셸 환경 구성](docs/shell-environment.md) — Zinit / SCM Breeze / Starship / mise
+- [Docker Desktop 없이 Docker 사용하기](docs/docker-with-colima.md) — Colima 설치, Docker 실행, Compose 설정
 
 ## 빠른 시작
 
