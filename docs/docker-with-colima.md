@@ -5,138 +5,58 @@ tags:
   - docker
   - colima
 created: 2026-09-16
+updated: 2026-09-16
 ---
 
-# Docker Desktop 없이 Mac에서 Docker 사용하기
+# Docker Desktop 없이 Mac 개발 환경 만들기
 
-**Colima + Docker CLI**를 사용하면 Docker Desktop을 설치하지 않고 Docker 컨테이너를 실행할 수 있다. 터미널 중심의 개발 환경에 적합하며, Intel Mac과 Apple Silicon Mac을 모두 지원한다.
+이 문서는 Colima로 **MySQL·RabbitMQ·Redis를 실행하고, Mac의 IntelliJ·DataGrip에서 연결하는 과정**을 설명한다. 처음 설정한다면 1~7단계를 순서대로 진행하고, 이후에는 8단계의 명령만 사용하면 된다.
 
-Colima는 Linux 가상 머신과 그 안의 Docker 엔진을 실행한다. Mac에서는 Docker CLI의 `docker` 명령으로 컨테이너를 관리한다. 따라서 Docker CLI만 설치해서는 컨테이너를 실행할 수 없고, Colima 같은 실행 환경도 필요하다.
+예제는 현재 노트북인 **Apple Silicon, 메모리 48 GiB, 논리 CPU 18개**를 기준으로 한다. Colima는 Intel Mac도 지원하지만, 아래 `aarch64`·`vz` 조합은 Apple Silicon용이다.
 
-## 1. 사전 준비
+## 먼저 이해하기: 무엇을 설치하는가?
 
-Homebrew가 설치되어 있어야 한다. 터미널에서 다음 명령으로 확인한다.
+| 구성 요소 | 역할 | 비유 |
+| --- | --- | --- |
+| Colima 프로필 | Linux 가상 머신과 실행 설정을 관리 | 개발용 서버 한 대 |
+| Docker 엔진 | 가상 머신 안에서 컨테이너 실행 | 서버 안의 컨테이너 실행 프로그램 |
+| Docker CLI | Mac에서 `docker` 명령으로 엔진에 요청 | 서버를 조작하는 클라이언트 |
+| Docker context | CLI가 접속할 엔진의 연결 정보 | DataGrip에 저장한 DB 연결 설정 |
+| Docker Compose | 여러 컨테이너의 구성을 파일로 관리 | 서비스 실행 명세서 |
+
+Context는 가상 서버 자체가 아니다. 같은 `docker ps`도 어느 context를 선택했는지에 따라 조회하는 서버가 달라지므로, 명령의 실행 대상이라는 의미로 context라고 부른다.
+
+이 문서에서는 프로필과 직접 만드는 context 이름을 모두 `shortchall-server`로 사용한다. 이름은 같지만 역할은 다르다.
+
+```text
+Mac: IntelliJ / DataGrip / Docker CLI
+                           │ context: shortchall-server
+                           ▼
+Colima 프로필: shortchall-server
+  └─ Linux 가상 머신
+      └─ Docker 엔진
+          ├─ MySQL
+          ├─ RabbitMQ
+          └─ Redis
+```
+
+## 1단계. Homebrew 확인하고 도구 설치하기
+
+터미널에서 실행한다.
 
 ```bash
 brew --version
 ```
 
-Homebrew가 없다면 [Homebrew 공식 사이트](https://brew.sh/)의 안내에 따라 설치한다.
-
-## 2. Colima와 Docker CLI 설치
+**이유:** 필요한 도구를 Homebrew로 설치하기 전에 Homebrew가 있는지 확인한다. 버전이 출력되면 다음으로 진행한다. 명령을 찾을 수 없다면 [Homebrew 공식 사이트](https://brew.sh/)에서 설치한다.
 
 ```bash
-brew install colima docker
+brew install colima docker docker-compose
 ```
 
-이 명령은 Colima와 Docker 명령줄 클라이언트를 설치한다. Docker Desktop 설치는 필요하지 않다.
+**이유:** Colima는 실행 환경, Docker CLI는 제어 명령, Compose는 세 서비스를 함께 관리하는 기능을 제공한다. Docker CLI만 설치하면 컨테이너를 실행할 엔진이 없으므로 Colima도 필요하다. [Colima 설치 문서](https://colima.run/docs/installation/)
 
-## 3. 실행 및 동작 확인
-
-```bash
-# Linux 가상 머신과 Docker 엔진 시작
-colima start
-
-# Colima 상태 확인
-colima status
-
-# 테스트 컨테이너 실행 후 자동 삭제
-docker run --rm hello-world
-
-# 실행 중인 컨테이너 목록 확인
-docker ps
-```
-
-`hello-world`의 정상 실행 메시지가 출력되면 사용할 준비가 된 것이다. 테스트 컨테이너는 실행을 마치고 삭제되므로, 다른 컨테이너가 없다면 `docker ps` 목록은 비어 있어도 정상이다.
-
-## 4. Colima 옵션 사용 예제
-
-### CPU·메모리·디스크 지정
-
-처음 실행할 때 옵션으로 가상 머신에 할당할 자원을 지정할 수 있다.
-
-```bash
-colima start --cpus 4 --memory 8 --disk 100
-```
-
-| 옵션 | 의미 |
-| --- | --- |
-| `--cpus 4` | 가상 CPU 4개 할당 |
-| `--memory 8` | 메모리 8 GiB 할당 |
-| `--disk 100` | 가상 디스크 용량 100 GiB 설정 |
-
-Mac의 전체 자원과 함께 실행할 앱을 고려해 값을 정한다. 이미 실행 중이라면 중지한 뒤 변경할 옵션을 지정해 시작한다.
-
-```bash
-colima stop
-colima start --cpus 4 --memory 6
-```
-
-기존 가상 디스크는 용량을 늘릴 수 있지만 줄일 수는 없다.
-
-### Apple Silicon에서 VZ·Rosetta 사용
-
-macOS 13 이상인 Apple Silicon Mac에서는 Apple의 Virtualization Framework(`vz`)와 Rosetta를 사용하는 구성을 선택할 수 있다. Rosetta는 amd64 컨테이너 실행에 사용하며, `virtiofs`는 Mac과 가상 머신 사이의 파일 공유 방식이다.
-
-아래는 `dev-vz`라는 새 프로필을 만드는 예제다. 프로필은 서로 별개의 실행 환경이며 이미지·컨테이너·볼륨이 자동으로 이전되지 않는다.
-
-```bash
-colima start dev-vz \
-  --runtime docker \
-  --arch aarch64 \
-  --vm-type vz \
-  --vz-rosetta \
-  --mount-type virtiofs \
-  --cpus 4 \
-  --memory 8 \
-  --disk 100
-```
-
-가상 머신 종류와 아키텍처, 마운트 방식은 생성 후 변경할 수 없으므로 기존 환경과 다른 구성을 사용할 때는 새 프로필 이름을 지정한다. 위 옵션 조합은 Intel Mac용 예제가 아니다.
-
-```bash
-# 해당 프로필의 Docker 환경 선택
-docker context use colima-dev-vz
-
-# amd64 이미지 실행 확인
-docker run --rm --platform linux/amd64 hello-world
-
-# 프로필 상태 확인 및 중지
-colima status dev-vz
-colima stop dev-vz
-
-# 같은 프로필 다시 시작
-colima start dev-vz
-```
-
-### 설정 파일 편집
-
-기본 프로필의 설정을 편집하려면 다음을 실행한다. 실행 중인 환경은 먼저 중지한다.
-
-```bash
-colima stop
-colima start --edit
-```
-
-기본 설정 파일은 `~/.colima/default/colima.yaml`이다. CLI의 `--cpus`에 대응하는 YAML 키는 `cpu`다.
-
-```yaml
-cpu: 4
-memory: 8
-disk: 100
-```
-
-전체 옵션은 `colima start --help`와 [Colima 설정 문서](https://colima.run/docs/configuration/)에서 확인할 수 있다.
-
-## 5. Docker Compose 설치 및 사용
-
-여러 컨테이너를 `compose.yaml`로 관리하려면 Compose 플러그인을 추가한다.
-
-```bash
-brew install docker-compose
-```
-
-설치 후 Homebrew가 출력하는 `cliPluginsExtraDirs` 안내에 따라 Docker의 플러그인 검색 경로를 설정한다. 이 메시지는 오류가 아니라 추가 설정 안내다.
+## 2단계. Docker가 Compose를 찾도록 설정하기
 
 먼저 Homebrew 설치 경로를 확인한다.
 
@@ -144,7 +64,18 @@ brew install docker-compose
 brew --prefix
 ```
 
-출력이 `/opt/homebrew`라면 `~/.docker/config.json`에 다음 항목을 추가한다. 아래는 파일을 새로 만들 때 사용할 수 있는 완전한 JSON 예시다.
+**이유:** Compose는 Docker 플러그인이다. Docker에 Homebrew의 플러그인 디렉터리를 알려 줘야 `docker compose`로 사용할 수 있다. 설치 중 출력된 `cliPluginsExtraDirs` 메시지는 이 설정을 안내하는 것이다. [Homebrew Compose 안내](https://formulae.brew.sh/formula/docker-compose)
+
+설정 디렉터리를 만들고 파일을 연다.
+
+```bash
+mkdir -p ~/.docker
+nano ~/.docker/config.json
+```
+
+`mkdir -p`는 디렉터리가 이미 있어도 사용할 수 있다. `nano`는 터미널에서 파일을 편집하는 프로그램이다.
+
+`brew --prefix` 결과가 `/opt/homebrew`이고 파일이 비어 있다면 다음 전체 내용을 입력한다.
 
 ```json
 {
@@ -154,56 +85,32 @@ brew --prefix
 }
 ```
 
-- 파일이 이미 있다면 기존 내용을 덮어쓰지 말고, 최상위 객체에 `cliPluginsExtraDirs` 항목을 추가한다. 기존 항목과의 쉼표 구분도 유지한다.
-- `cliPluginsExtraDirs`가 이미 있다면 기존 배열에 경로를 추가한다. 같은 키를 중복으로 만들지 않는다.
-- `brew --prefix` 출력이 `/usr/local`이라면 `/usr/local/lib/docker/cli-plugins`를 사용한다. 실제 Homebrew 경로 뒤에 `/lib/docker/cli-plugins`를 붙이면 된다.
-- JSON에는 실제 절대 경로를 입력한다. `$(brew --prefix)` 같은 셸 명령은 JSON 안에서 실행되지 않는다.
-- `~/.docker` 디렉터리가 없다면 `mkdir -p ~/.docker`로 만든 뒤 파일을 생성한다.
+**파일에 기존 내용이 있다면 덮어쓰지 말고** 최상위 `{ ... }` 안에 `cliPluginsExtraDirs` 항목을 추가한다. 기존 항목과 쉼표로 구분하고, 같은 키가 이미 있으면 배열에 경로만 추가한다. 아래는 4단계까지 완료해 `shortchall-server` context를 선택한 뒤의 설정 예시다.
 
-설정 후 Compose가 인식되는지 확인한다.
+```json
+{
+  "currentContext": "shortchall-server",
+  "cliPluginsExtraDirs": [
+    "/opt/homebrew/lib/docker/cli-plugins"
+  ]
+}
+```
+
+`currentContext`는 현재 선택한 Docker context 이름이다. 처음 따라 하는 중이라면 이 단계에서는 기존 값을 유지하고, 항목이 없다면 추가하지 않는다. 4단계에서 context를 만든 뒤 `docker context use shortchall-server`를 실행하면 해당 값이 설정되므로 직접 수정할 필요가 없다.
+
+Homebrew 경로가 `/usr/local`이면 플러그인 경로도 `/usr/local/lib/docker/cli-plugins`로 바꾼다. JSON에는 실제 경로를 적어야 하며 `$(brew --prefix)`는 실행되지 않는다.
+
+`nano`에서 `Control+O`, Enter로 저장하고 `Control+X`로 종료한다. 다음 명령으로 확인한다.
 
 ```bash
 docker compose version
 ```
 
-기존 안내대로 `~/.docker/cli-plugins/docker-compose` 심볼릭 링크를 만들었고 위 명령이 정상 동작한다면 그 방식도 유효하다. 두 방식을 모두 설정할 필요는 없다. 이 문서는 [Homebrew 패키지 안내](https://formulae.brew.sh/formula/docker-compose)에 맞춰 `cliPluginsExtraDirs` 방식을 사용한다.
+**확인할 결과:** Compose 버전이 출력되면 성공이다. 이미 심볼릭 링크 방식으로 설정했고 이 명령이 정상이라면 검색 경로를 추가로 설정할 필요는 없다.
 
-`compose.yaml`이 있는 프로젝트 디렉터리에서 실행한다.
+## 3단계. shortchall-server 가상 머신 시작하기
 
-```bash
-# 백그라운드 실행
-docker compose up -d
-
-# 서비스 상태 확인
-docker compose ps
-
-# 로그 확인
-docker compose logs -f
-
-# 프로젝트 컨테이너와 네트워크 정리
-docker compose down
-```
-
-## 6. MySQL·RabbitMQ·Redis 개발 환경 권장 구성
-
-### 현재 노트북 기준 권장 자원
-
-2026-09-16에 확인한 노트북 사양은 Apple Silicon, 메모리 48 GiB, 논리 CPU 18개다. IntelliJ와 DataGrip, 개발 애플리케이션은 Mac에서 실행하고 MySQL·RabbitMQ·Redis는 각각 컨테이너 하나로 실행하는 구성을 가정한다.
-
-일반적인 개발용 데이터와 요청량에서는 **CPU 4개·메모리 8 GiB·디스크 100 GiB**를 시작값으로 권장한다. 실제 사용량을 측정해 조정할 값이며, IDE·애플리케이션 JVM·빌드 작업에 사용할 메모리도 확보할 수 있다.
-
-| 설정 | 추천값 | 용도 |
-| --- | --- | --- |
-| CPU | 4개 | 세 서비스의 로컬 개발 작업 처리 |
-| 메모리 | 8 GiB | DB·메시지 큐·Linux 실행 환경 |
-| 디스크 | 100 GiB | 이미지·DB 데이터·로그 저장 |
-| VM | `vz` | macOS 가상화 프레임워크 |
-| 아키텍처 | `aarch64` | Apple Silicon에서 ARM 이미지 실행 |
-| 파일 공유 | `virtiofs` | Mac 디렉터리 공유 |
-
-### 새 개발 환경 생성
-
-`shortchall-server`라는 프로필로 새 환경을 생성한다. VZ·VirtioFS 설정은 [Colima 공식 설정 문서](https://colima.run/docs/configuration/)를 참고한다.
+처음 만드는 환경이라면 다음을 실행한다.
 
 ```bash
 colima start shortchall-server \
@@ -214,71 +121,225 @@ colima start shortchall-server \
   --cpus 4 \
   --memory 8 \
   --disk 100
+```
 
-# 최초 한 번: Colima가 생성한 연결 설정을 복사
+**이유:** 세 서비스를 실행할 Linux 가상 머신을 만들고 Docker 엔진을 시작한다. 줄 끝의 `\`는 명령이 다음 줄로 이어진다는 뜻이다.
+
+| 인자·옵션 | 사용하는 이유 |
+| --- | --- |
+| `shortchall-server` | 이 개발 환경을 이름으로 구분하고 나중에 다시 시작하기 위해 |
+| `--runtime docker` | Docker CLI와 연결할 Docker 엔진을 사용하기 위해 |
+| `--arch aarch64` | Apple Silicon에서 ARM64 이미지를 실행하기 위해 |
+| `--vm-type vz` | macOS의 가상화 프레임워크를 사용하기 위해 |
+| `--mount-type virtiofs` | Mac 폴더를 가상 머신에 공유할 때 사용할 방식 지정 |
+| `--cpus 4` | 가상 CPU 4개 할당 |
+| `--memory 8` | 세 서비스와 Linux에 메모리 8 GiB 할당 |
+| `--disk 100` | 이미지·데이터 저장용 가상 디스크 용량을 100 GiB로 설정 |
+
+CPU 4개·메모리 8 GiB는 일반적인 로컬 개발을 위한 시작값이다. IntelliJ·DataGrip·애플리케이션 JVM·빌드 작업에 사용할 Mac 자원도 남겨 둔다. 부족할 때 측정 후 늘린다. VZ 구성은 macOS 13 이상을 전제로 한다. [Colima 설정 문서](https://colima.run/docs/configuration/)
+
+```bash
+colima status shortchall-server
+```
+
+**확인할 결과:** 실행 중이라는 상태와 Docker runtime이 표시되어야 한다.
+
+이미 같은 프로필을 만들었다면 `colima start shortchall-server`로 다시 시작하면 된다. 다른 프로필의 이미지·컨테이너·볼륨은 자동 이전되지 않는다. 기존 프로필의 VM 종류·아키텍처를 바꾸려는 경우에는 뒤의 선택 설정을 참고한다.
+
+## 4단계. Docker 연결 이름을 shortchall-server로 만들기
+
+먼저 등록된 연결 설정을 확인한다.
+
+```bash
+docker context ls
+```
+
+**이유:** Colima 프로필 이름은 `shortchall-server`지만 자동 생성된 Docker context 이름은 `colima-shortchall-server`이기 때문이다. 목록의 `*`는 현재 선택된 context다.
+
+`shortchall-server` context가 아직 없다면 최초 한 번 실행한다.
+
+```bash
 docker context create \
   --from colima-shortchall-server \
   shortchall-server
-
-docker context use shortchall-server
 ```
 
-Colima 프로필 이름은 `shortchall-server`이고, Colima가 자동 생성하는 Docker context 이름은 `colima-shortchall-server`다. 위 명령은 같은 Docker 엔진에 연결하는 `shortchall-server` context를 추가한다. 두 context에서 보이는 컨테이너·이미지·볼륨은 동일하다. [Docker context 생성 문서](https://docs.docker.com/reference/cli/docker/context/create/)
-
-`docker context use`는 이미 존재하는 context를 선택하는 명령이므로 생성 단계를 먼저 실행해야 한다. `shortchall-server` context를 이미 만들었다면 생성 명령은 생략한다. 등록된 이름과 현재 선택 상태는 다음으로 확인한다.
+**이유:** 기존 context의 연결 정보를 복사해 짧은 이름의 context를 만든다. 새로운 가상 머신을 만드는 명령이 아니다. 두 context는 같은 Docker 엔진을 가리키므로 컨테이너·이미지·볼륨도 동일하게 보인다. [Docker context 생성 문서](https://docs.docker.com/reference/cli/docker/context/create/)
 
 ```bash
-docker context ls      # 전체 목록, 현재 선택은 * 표시
-docker context show    # 현재 선택된 이름
+docker context use shortchall-server
+docker context show
 ```
 
-Colima는 시작할 때 자신이 관리하는 context를 자동 선택할 수 있다. 이후 재시작할 때도 아래처럼 원하는 context를 선택한다. Context 선택 자체는 컨테이너를 이동하거나 시작·중지하지 않는다. [Colima 자동 선택 설정](https://colima.run/docs/configuration/#auto-activation)
+**이유:** 이후 `docker` 명령의 작업 대상을 선택하고 이름을 확인한다. 결과가 `shortchall-server`이면 성공이다. `use`는 이미 있는 context를 선택하므로 생성보다 먼저 실행할 수 없다.
+
+Colima는 시작할 때 자동 생성한 context를 다시 선택할 수 있다. 따라서 재시작 뒤에도 `docker context use shortchall-server`를 실행하는 순서를 사용한다. [Colima 자동 선택 설정](https://colima.run/docs/configuration/#auto-activation)
+
+## 5단계. 테스트 컨테이너로 연결 확인하기
+
+```bash
+docker run --rm hello-world
+```
+
+**이유:** 이미지 다운로드부터 컨테이너 실행까지 한 번에 확인한다. `--rm`은 실행이 끝난 테스트 컨테이너를 자동 삭제한다. 정상 실행 메시지가 나오면 Docker CLI와 엔진 연결이 준비된 것이다.
+
+```bash
+docker ps
+```
+
+**확인할 결과:** 오류 없이 목록이 출력되어야 한다. `hello-world`는 이미 종료·삭제되었으므로 목록이 비어 있어도 정상이다.
+
+## 6단계. MySQL·RabbitMQ·Redis 실행하기
+
+### 6-1. Compose 파일 준비
+
+IntelliJ에서 개발 프로젝트를 열고 프로젝트 루트에 `compose.yaml`을 만든다. 이미 파일이 있다면 기존 프로젝트의 구성을 사용하며, 아래 예제로 덮어쓰지 않는다.
+
+아래는 새 로컬 개발 환경용 예제다. 이미지 버전은 프로젝트와 맞추고 ARM64 지원 태그를 사용한다. 예제 비밀번호는 로컬 개발용이며 실제 서비스 비밀번호로 사용하지 않는다.
+
+```yaml
+name: shortchall-server
+
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: local-root-password
+      MYSQL_DATABASE: shortchall
+      MYSQL_USER: shortchall
+      MYSQL_PASSWORD: local-dev-password
+    ports:
+      - "127.0.0.1:3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+
+  rabbitmq:
+    image: rabbitmq:4-management
+    hostname: shortchall-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: shortchall
+      RABBITMQ_DEFAULT_PASS: local-dev-password
+    ports:
+      - "127.0.0.1:5672:5672"
+      - "127.0.0.1:15672:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+
+  redis:
+    image: redis:8
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis-data:/data
+
+volumes:
+  mysql-data:
+  rabbitmq-data:
+  redis-data:
+```
+
+| 항목 | 설정 이유 |
+| --- | --- |
+| `name` | Compose 프로젝트 이름을 고정한다. Colima 프로필·context와는 별개의 이름이다. |
+| `image` | 실행할 서비스와 버전을 선택한다. `management` 태그는 RabbitMQ 관리 UI를 포함한다. |
+| `environment` | 초기 데이터베이스와 개발용 계정을 설정한다. |
+| `ports` | Mac의 포트를 컨테이너 포트에 연결한다. `127.0.0.1`은 로컬 접속용 바인딩이다. |
+| `volumes` | 컨테이너를 다시 만들어도 데이터를 보존할 저장소를 연결한다. |
+| RabbitMQ `hostname` | 컨테이너 재생성 시에도 노드의 호스트 이름을 일정하게 유지한다. |
+| Redis `--appendonly yes` | 데이터를 파일에 기록하는 AOF 영속화를 켠다. |
+
+Named volume은 Colima VM 내부에 저장되므로 DB 파일이 Mac 폴더 공유를 거치지 않는다. 이 용도로 별도 `--network-address` 옵션은 필요하지 않다. [Docker 볼륨](https://docs.docker.com/engine/storage/volumes/), [포트 공개](https://docs.docker.com/engine/network/port-publishing/)
+
+초기 계정 설정은 새 데이터 볼륨을 처음 초기화할 때 적용된다. 기존 데이터를 둔 채 환경 변수의 비밀번호만 바꿔도 저장된 계정 비밀번호가 자동으로 변경되지는 않는다. 이미지 설정은 [MySQL](https://hub.docker.com/_/mysql), [RabbitMQ](https://hub.docker.com/_/rabbitmq/), [Redis](https://hub.docker.com/_/redis) 공식 이미지 문서를 참고한다.
+
+### 6-2. 구성 확인 후 실행
+
+IntelliJ의 터미널 등에서 **`compose.yaml`이 있는 디렉터리**로 이동한 뒤 실행한다.
+
+```bash
+docker compose config --quiet
+```
+
+**이유:** 실행 전에 YAML과 Compose 설정 형식이 올바른지 확인한다. 출력 없이 성공하면 다음으로 진행한다.
+
+```bash
+docker compose up -d
+```
+
+**이유:** 파일에 정의한 세 서비스를 함께 생성·시작한다. `-d`는 백그라운드 실행으로 터미널을 계속 사용할 수 있게 한다. 처음에는 이미지 다운로드와 DB 초기화에 시간이 걸린다.
+
+```bash
+docker compose ps
+docker compose logs -f
+```
+
+**확인할 결과:** 세 서비스가 실행 중이어야 한다. 실행 상태만으로 DB 초기화 완료가 보장되지는 않으므로 로그에서 준비 완료 여부나 오류를 확인한다. `logs -f`는 새 로그를 계속 보여 주며, `Control+C`로 로그 보기만 종료할 수 있다. 컨테이너는 계속 실행된다.
+
+## 7단계. DataGrip과 IntelliJ에서 연결하기
+
+위 Compose 예제를 사용했다면 다음 값으로 접속한다.
+
+| 대상 | 주소 | 계정·설정 |
+| --- | --- | --- |
+| MySQL | `127.0.0.1:3306` | DB `shortchall`, 사용자 `shortchall`, 비밀번호 `local-dev-password` |
+| RabbitMQ | `127.0.0.1:5672` | 사용자 `shortchall`, 비밀번호 `local-dev-password`, vhost `/` |
+| RabbitMQ 관리 UI | `http://127.0.0.1:15672` | RabbitMQ와 같은 계정 |
+| Redis | `127.0.0.1:6379` | 예제에서는 인증 미설정 |
+
+DataGrip에서 MySQL 데이터 소스를 만들고 표의 호스트·포트·DB·계정을 입력해 연결을 테스트한다. IntelliJ에서 실행하는 애플리케이션의 DB·메시지 큐·캐시 설정에도 같은 값을 사용한다.
+
+**이유:** 애플리케이션과 DataGrip은 Mac에서 실행되므로 Compose가 공개한 Mac 포트로 접속한다. 나중에 애플리케이션도 같은 Compose 안에서 실행한다면 호스트는 `mysql`, `rabbitmq`, `redis`라는 서비스 이름을 사용한다. 컨테이너 안의 `127.0.0.1`은 그 컨테이너 자신을 뜻한다.
+
+접속되지 않으면 먼저 `docker compose ps`와 해당 서비스 로그(예: `docker compose logs mysql`)를 확인한다. 포트가 이미 사용 중이라면 호스트 쪽 포트를 바꾼다. 예를 들어 `127.0.0.1:3307:3306`으로 설정하면 DataGrip에서도 포트 `3307`을 사용한다.
+
+## 8단계. 다음 날 다시 시작하고 작업 종료하기
+
+### 작업 시작
 
 ```bash
 colima start shortchall-server
 docker context use shortchall-server
 ```
 
-기존 프로필의 이미지·컨테이너·볼륨은 새 프로필로 자동 이전되지 않는다. 기존 기본 프로필의 데이터를 계속 사용하면서 자원만 조정하려면 다음을 실행한다.
+가상 머신을 시작하고 Docker의 작업 대상을 선택한다. 처음 지정한 자원 옵션은 저장되어 있으므로 매번 반복할 필요가 없다.
+
+프로젝트의 `compose.yaml`이 있는 디렉터리에서 실행한다.
 
 ```bash
-colima stop
-colima start --cpus 4 --memory 8
+docker compose up -d
+docker compose ps
 ```
 
-이 명령은 기존 디스크 크기를 유지한다. 디스크를 늘릴 때만 `--disk`로 현재보다 큰 값을 지정한다. 디스크 축소는 지원하지 않는다.
+필요한 서비스를 시작하고 실행 상태를 확인한다.
 
-### 이미지와 데이터 저장
+### 작업 종료
 
-- MySQL·RabbitMQ·Redis 이미지 버전은 프로젝트의 요구사항에 맞추고 ARM64를 지원하는 태그를 선택한다.
-- ARM64 이미지 사용 시 Rosetta는 필요하지 않다. amd64 전용 이미지가 필요한 경우 VZ 환경에서 `--vz-rosetta` 옵션을 사용한다.
-- DB와 메시지 데이터는 Docker named volume에 저장하는 것을 권장한다. Colima VM 내부에 저장되므로 Mac 폴더 공유를 거치지 않는다. Docker도 영속 데이터와 높은 I/O 성능이 필요한 용도로 볼륨을 권장한다. [Docker 볼륨 문서](https://docs.docker.com/engine/storage/volumes/)
+```bash
+docker compose stop
+colima stop shortchall-server
+```
 
-### IntelliJ·DataGrip에서 서비스 접속
+먼저 프로젝트의 컨테이너를 중지하고, 이어서 가상 머신을 중지해 자원을 반환한다. 데이터 볼륨은 유지된다. Colima를 중지하면 그 프로필 안의 모든 컨테이너가 중지된다.
 
-Compose에서 각 서비스에 아래 포트를 공개한다. 표의 값은 각 서비스의 `ports` 배열에 넣는 항목이다. RabbitMQ 관리 UI 포트는 관리 플러그인을 활성화한 경우에 사용한다.
+컨테이너와 프로젝트 네트워크까지 정리하고 싶을 때는 `stop` 대신 다음을 사용한다.
 
-| 서비스 | Compose의 `ports` 항목 | Mac에서 접속 |
-| --- | --- | --- |
-| MySQL | `"127.0.0.1:3306:3306"` | `127.0.0.1:3306` |
-| RabbitMQ | `"127.0.0.1:5672:5672"` | `127.0.0.1:5672` |
-| RabbitMQ 관리 UI | `"127.0.0.1:15672:15672"` | `http://127.0.0.1:15672` |
-| Redis | `"127.0.0.1:6379:6379"` | `127.0.0.1:6379` |
+```bash
+docker compose down
+```
 
-DataGrip의 MySQL 연결에는 호스트 `127.0.0.1`, 포트 `3306`, 컨테이너에 설정한 데이터베이스 이름과 계정을 입력한다. IntelliJ에서 실행하는 애플리케이션도 표의 주소를 사용한다.
+Named volume은 남으므로 다음 `up -d`에서 재사용한다. **`down -v`는 볼륨 데이터도 삭제하므로 데이터를 유지할 때 사용하지 않는다.**
 
-`127.0.0.1` 바인딩은 해당 Mac에서 접근하도록 제한한다. 이 구성에는 별도 `--network-address` 옵션이 필요하지 않다. [Docker 포트 공개 문서](https://docs.docker.com/engine/network/port-publishing/), [Colima 포트 전달](https://colima.run/docs/configuration/#port-forwarding)
-
-### 사용량 확인과 자원 증설
-
-먼저 해당 Docker 환경을 선택하고 컨테이너별 사용량을 확인한다.
+## 선택 설정 A. 자원이 부족할 때 조정하기
 
 ```bash
 docker context use shortchall-server
 docker stats
 ```
 
-대량 데이터 적재나 메시지 처리 테스트 중 자원 부족이 확인되면 CPU 6개·메모리 12 GiB로 늘려 본다. Mac의 활성 상태 보기에서 메모리 압력도 함께 확인한다.
+**이유:** 컨테이너별 CPU·메모리 사용량을 확인하고 증설 필요성을 판단한다. Mac의 활성 상태 보기에서 메모리 압력도 함께 확인한다. `Control+C`로 조회를 종료한다.
+
+대량 데이터 적재나 메시지 처리 중 부족함이 확인되면 다음과 같이 늘려 본다.
 
 ```bash
 colima stop shortchall-server
@@ -286,31 +347,127 @@ colima start shortchall-server --cpus 6 --memory 12
 docker context use shortchall-server
 ```
 
-중지 과정에서 서비스도 중단된다. 다시 시작한 뒤 프로젝트 디렉터리에서 `docker compose up -d`로 필요한 서비스를 실행한다. 기본 프로필을 사용한다면 위 명령의 `shortchall-server`를 생략하고 Docker context는 `colima`를 사용한다.
+재시작 후 프로젝트 디렉터리에서 `docker compose up -d`를 실행한다. 디스크를 늘리려면 현재보다 큰 값으로 `--disk`를 추가한다. 기존 디스크는 축소할 수 없다.
 
-## 7. 자주 사용하는 명령
+파일로 설정을 편집하려면 다음을 사용한다.
 
-| 명령 | 설명 |
+```bash
+colima stop shortchall-server
+colima start shortchall-server --edit
+docker context use shortchall-server
+```
+
+설정 파일은 `~/.colima/shortchall-server/colima.yaml`이다. 기존 파일의 해당 항목을 수정한다. CLI의 `--cpus`는 YAML에서는 `cpu`다.
+
+```yaml
+cpu: 6
+memory: 12
+disk: 100
+```
+
+전체 옵션은 `colima start --help`로 확인한다. VM 종류·아키텍처·마운트 방식처럼 생성 이후 변경에 제약이 있는 설정은 새 프로필로 구성한다. 기존 데이터는 자동 이전되지 않는다. 기본 프로필을 사용하는 경우에는 Colima 명령의 프로필 이름을 생략하며, 설정 파일은 `~/.colima/default/colima.yaml`이다. [Colima 설정 문서](https://colima.run/docs/configuration/)
+
+## 선택 설정 B. amd64 전용 이미지가 필요할 때
+
+ARM64 이미지로 개발할 때는 Rosetta가 필요하지 않다. Apple Silicon의 VZ 환경에서 amd64 전용 이미지를 실행해야 할 때 다음 옵션을 추가한다.
+
+```bash
+colima stop shortchall-server
+colima start shortchall-server --vz-rosetta
+docker context use shortchall-server
+docker run --rm --platform linux/amd64 hello-world
+```
+
+**이유:** `--vz-rosetta`는 amd64 실행을 위한 Rosetta 지원을 켜고, `--platform linux/amd64`는 테스트할 이미지 아키텍처를 명시한다. VM 자체는 ARM64로 유지한다. [Colima Rosetta 설정](https://colima.run/docs/configuration/#rosetta)
+
+## 선택 설정 C. 자동 생성된 context 정리하기
+
+이 단계는 선택 사항이다. 두 context를 그대로 두어도 같은 가상 머신에 연결한다.
+
+```bash
+docker context use shortchall-server
+docker context rm colima-shortchall-server
+docker context ls
+```
+
+**이유:** 사용할 context로 먼저 전환하고, 불필요한 연결 설정만 제거한다. 가상 머신과 컨테이너·이미지·볼륨은 삭제되지 않는다.
+
+Colima가 관리하는 context이므로 다음 `colima start shortchall-server`에서 다시 생성될 수 있다. 영구적인 이름 변경은 아니며, 재시작 후 원하는 context를 다시 선택하면 된다.
+
+## 선택 설정 D. 원격 서버의 Docker 조회하기
+
+### 등록된 연결 확인
+
+```bash
+docker context ls
+```
+
+**이유:** 현재 Mac에 저장된 연결 설정을 확인한다. 원격 서버를 자동 검색하는 명령은 아니다. `DOCKER ENDPOINT`가 실제 연결 대상이며 다음은 예시다.
+
+```text
+NAME                   DOCKER ENDPOINT
+shortchall-server *    unix:///Users/<사용자>/.colima/shortchall-server/docker.sock
+remote-dev             ssh://ubuntu@dev.example.com
+```
+
+이미 등록된 원격 context의 상세 정보를 보려면 실행한다.
+
+```bash
+docker context inspect remote-dev
+```
+
+이 명령은 저장된 설정을 보여 주며, 서버 연결 성공을 보장하지는 않는다. [Docker context 문서](https://docs.docker.com/engine/manage-resources/contexts/)
+
+### 원격 서버가 등록되어 있지 않다면
+
+원격 서버에 Docker가 실행 중이고 SSH 접속이 가능해야 한다. SSH 계정에는 원격 Docker 소켓 접근 권한도 필요하다. 아래 계정과 주소를 실제 값으로 바꿔 최초 한 번 등록한다.
+
+```bash
+docker context create remote-dev \
+  --docker "host=ssh://ubuntu@dev.example.com"
+```
+
+**이유:** SSH를 통해 원격 Docker 엔진에 접속할 연결 정보를 Mac에 저장한다. 서버 생성이나 Docker 설치를 수행하는 명령은 아니다. [Docker SSH 연결 안내](https://docs.docker.com/engine/security/protect-access/)
+
+### 원격 컨테이너 조회
+
+```bash
+docker --context remote-dev ps -a
+```
+
+**이유:** 이 명령만 원격 엔진에 실행한다. 현재 선택된 로컬 context는 유지되며, `-a`로 중지된 컨테이너까지 확인한다.
+
+원격 서버를 계속 작업 대상으로 사용하려면 다음과 같이 전환한다.
+
+```bash
+docker context use remote-dev
+docker ps -a
+
+# 원격 작업 후 로컬 개발 환경으로 복귀
+docker context use shortchall-server
+```
+
+## 명령 빠르게 찾기
+
+| 목적 | 명령 |
 | --- | --- |
-| `colima start` | Colima 실행 환경 시작 |
-| `colima stop` | Colima 실행 환경 중지 |
-| `colima status` | Colima 상태 확인 |
-| `docker ps` | 실행 중인 컨테이너 목록 |
-| `docker ps -a` | 중지된 컨테이너를 포함한 목록 |
-| `docker images` | 로컬 이미지 목록 |
-| `docker logs <컨테이너>` | 컨테이너 로그 확인 |
-| `docker stop <컨테이너>` | 지정한 컨테이너 중지 |
+| 가상 머신 상태 | `colima status shortchall-server` |
+| 현재 Docker 연결 확인 | `docker context show` |
+| 전체 연결 설정 목록 | `docker context ls` |
+| 현재 프로젝트 상태 | `docker compose ps` |
+| MySQL 로그 확인 | `docker compose logs -f mysql` |
+| 모든 컨테이너 조회 | `docker ps -a` |
+| 이미지 목록 | `docker images` |
+| 데이터 볼륨 목록 | `docker volume ls` |
+| 자원 사용량 | `docker stats` |
 
-Colima를 중지하면 그 안에서 실행 중이던 컨테이너도 중지된다. 다시 작업할 때는 `colima start`로 실행 환경을 시작한다.
+## 참고 문서와 다른 선택지
 
-## 다른 선택지
+- [Colima 설치](https://colima.run/docs/installation/)
+- [Colima 옵션과 설정 파일](https://colima.run/docs/configuration/)
+- [Homebrew Compose 플러그인 설정](https://formulae.brew.sh/formula/docker-compose)
+- [Docker Compose 시작하기](https://docs.docker.com/compose/gettingstarted/)
+- [Docker context 관리](https://docs.docker.com/engine/manage-resources/contexts/)
+- [원격 Docker에 SSH로 연결하기](https://docs.docker.com/engine/security/protect-access/)
 
-GUI로 컨테이너를 관리하고 싶다면 [OrbStack](https://docs.orbstack.dev/)도 Docker Desktop의 대안이다. 터미널에서 Docker 명령을 사용하는 것이 목적이라면 Colima로 시작하면 된다.
-
-## 참고 문서
-
-- [Colima 시작하기](https://colima.run/docs/getting-started/)
-- [Colima 설치 및 Docker 플러그인 설정](https://colima.run/docs/installation/)
-- [Colima 실행 옵션과 설정 파일](https://colima.run/docs/configuration/)
-- [Homebrew Docker Compose 패키지](https://formulae.brew.sh/formula/docker-compose)
-- [OrbStack 공식 문서](https://docs.orbstack.dev/)
+GUI로 컨테이너를 관리하고 싶다면 [OrbStack](https://docs.orbstack.dev/)도 Docker Desktop의 대안이다.
